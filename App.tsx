@@ -5,10 +5,10 @@ import {
 } from 'lucide-react';
 import { UserStats, Lesson, HistoryRecord, GameState, Finger } from './types';
 import { INITIAL_LESSONS, FINGER_MAP, MOTIVATION_QUOTES } from './constants';
-import { soundManager } from './services/audioService.ts';
-import Keyboard from './components/Keyboard';
-import HandGuide from './components/HandGuide';
-import AdUnit from './components/AdPlaceholder';
+import { soundManager } from './audioService';
+import Keyboard from './Keyboard';
+import HandGuide from './HandGuide';
+import AdUnit from './AdPlaceholder';
 
 /* 
   NON-DEVELOPER GUIDE:
