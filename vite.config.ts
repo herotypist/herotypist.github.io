@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      base: './', // This tells GitHub to look in the current folder
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -16,7 +17,8 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          '@': path.resolve(__dirname, '.'),
+          // This ensures '@' points to the same folder you are in
+          '@': path.resolve(__dirname, './'),
         }
       }
     };
