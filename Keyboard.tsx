@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { KEYBOARD_LAYOUT } from '../constants';
+import { KEYBOARD_LAYOUT } from './constants';
 
 interface KeyboardProps {
   activeKey: string;
