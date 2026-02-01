@@ -1,8 +1,8 @@
-name: Deploy React TS App
+name: Deploy Flat React App
 
 on:
   push:
-    branches: ["main"] # Runs every time you upload code to 'main'
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -13,10 +13,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -29,8 +29,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # If your app uses Vite, use 'dist'. If it's an older React app, use 'build'.
-          path: ./dist 
+          path: ./dist
 
   deploy:
     needs: build
