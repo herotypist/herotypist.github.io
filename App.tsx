@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Trophy, BookOpen, Layout, History, Settings, Play, ChevronRight, RefreshCw, Lock, AlertCircle, Star, Volume2, Pause, PlayCircle, X, Trash2, BrainCircuit, Keyboard as KeyboardIcon, Hand, MousePointer2
 } from 'lucide-react';
@@ -8,14 +7,7 @@ import { INITIAL_LESSONS, FINGER_MAP, MOTIVATION_QUOTES } from './constants';
 import { soundManager } from './audioService';
 import Keyboard from './Keyboard';
 import HandGuide from './HandGuide';
-import AdUnit from './AdPlaceholder'; // Import upgraded component
-
-interface NoticeState {
-  message: string;
-  allowOverride: boolean;
-  targetLesson?: Lesson;
-  isRecommendation?: boolean;
-}
+import AdUnit from './AdPlaceholder';
 
 const calculateStars = (wpm: number, accuracy: number, stage: number, level: number): number => {
   const targetWpm = 10 + (stage * 0.5) + (level * 1.5);
@@ -36,6 +28,9 @@ const App: React.FC = () => {
   const [showKeyboard, setShowKeyboard] = useState(true);
   const [showHands, setShowHands] = useState(true);
   const [isInputFocused, setIsInputFocused] = useState(true);
+
+  // Focus Mode Ref: To scroll the lesson into view
+  const practiceViewRef = useRef<HTMLDivElement>(null);
 
   const STORAGE_KEY_STATS = 'herotypist-stats-v12';
   const STORAGE_KEY_HISTORY = 'herotypist-history-v12';
@@ -61,10 +56,29 @@ const App: React.FC = () => {
   });
   
   const [gameState, setGameState] = useState<GameState>(GameState.IDLE);
-  const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [notice, setNotice] = useState<{message: string; allowOverride: boolean; targetLesson?: Lesson} | null>(null);
   const [quote, setQuote] = useState('');
   
   const textInputRef = useRef<HTMLInputElement>(null);
+
+  // --- FOCUS MODE LOGIC ---
+  useEffect(() => {
+    if (activeTab === 'practice' && practiceViewRef.current) {
+      practiceViewRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeTab, currentLesson]);
+
+  // --- GRADUAL REVEAL LOGIC ---
+  const visibleTextIndices = useMemo(() => {
+    if (!currentLesson) return { start: 0, end: 0 };
+    const charsPerLine = 45; // Adjusted for the 4xl font size
+    const currentLine = Math.floor(typedText.length / charsPerLine);
+    
+    // Show current line and 2 lines ahead
+    const start = Math.max(0, currentLine * charsPerLine);
+    const end = start + (charsPerLine * 3); 
+    return { start, end };
+  }, [typedText.length, currentLesson]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_STATS, JSON.stringify(stats));
@@ -95,7 +109,7 @@ const App: React.FC = () => {
     const focusInput = () => {
       if (activeTab === 'practice' && gameState !== GameState.FINISHED && textInputRef.current) {
         const active = document.activeElement;
-        const isInteractive = active?.tagName === 'BUTTON' || active?.tagName === 'INPUT' && active !== textInputRef.current;
+        const isInteractive = active?.tagName === 'BUTTON' || (active?.tagName === 'INPUT' && active !== textInputRef.current);
         if (!isInteractive && active !== textInputRef.current) {
           textInputRef.current.focus();
           setIsInputFocused(true);
@@ -197,7 +211,7 @@ const App: React.FC = () => {
   };
 
   const wipeAllData = () => {
-    if (confirm("DANGER: Proceeding will erase all rank progress and XP. Hero status is at stake. Continue?")) {
+    if (confirm("DANGER: Wipe all training data?")) {
       localStorage.removeItem(STORAGE_KEY_STATS);
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       window.location.reload();
@@ -211,39 +225,19 @@ const App: React.FC = () => {
   const activeFinger = nextChar ? FINGER_MAP[nextChar.toLowerCase()] || null : null;
 
   return (
-    <div className="min-h-screen flex flex-col max-w-[1500px] mx-auto px-6 lg:px-12 bg-[#020617] text-slate-100 font-sans antialiased selection:bg-cyan-500/30 overflow-x-hidden">
+    <div className="min-h-screen flex flex-col max-w-[1500px] mx-auto px-6 lg:px-12 bg-[#020617] text-slate-100 font-sans antialiased selection:bg-cyan-500/30 overflow-x-hidden scroll-smooth">
       <div className="fixed top-0 left-0 w-full z-[150] h-1.5 bg-gradient-to-r from-cyan-600 via-emerald-500 to-indigo-600"></div>
-
-      {notice && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-2xl">
-          <div className="bg-slate-900 border-2 border-slate-700 p-12 rounded-[4rem] max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-300">
-            <div className="flex flex-col items-center text-center space-y-10">
-              <div className="w-24 h-24 rounded-full flex items-center justify-center ring-[12px] ring-opacity-10 bg-amber-500/10 text-amber-500 ring-amber-500">
-                <AlertCircle size={48} />
-              </div>
-              <h3 className="text-3xl font-black tracking-tighter">Access Restriction</h3>
-              <p className="text-slate-400 font-medium leading-relaxed">{notice.message}</p>
-              <div className="flex flex-col w-full gap-4">
-                <button onClick={() => setNotice(null)} className="w-full py-5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-2xl font-black transition-all">Abort</button>
-                {notice.allowOverride && notice.targetLesson && (
-                  <button onClick={() => { handleStartLesson(notice.targetLesson!, true); }} className="w-full py-5 rounded-2xl font-black bg-amber-600 hover:bg-amber-500 transition-all shadow-xl">Override Entry</button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showSettings && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-950/95 backdrop-blur-2xl">
-          <div className="bg-slate-900 border-2 border-slate-700 p-12 rounded-[4rem] max-w-lg w-full shadow-2xl animate-in zoom-in-95 duration-300 relative">
-            <button onClick={() => setShowSettings(false)} className="absolute top-10 right-10 p-3 text-slate-500 hover:text-white transition-all"><X size={36} /></button>
-            <h3 className="text-4xl font-black mb-12 tracking-tighter">Operational Config</h3>
+          <div className="bg-slate-900 border-2 border-slate-700 p-12 rounded-[4rem] max-w-lg w-full shadow-2xl relative">
+            <button onClick={() => setShowSettings(false)} className="absolute top-10 right-10 p-3 text-slate-500 hover:text-white"><X size={36} /></button>
+            <h3 className="text-4xl font-black mb-12 tracking-tighter">Command Center</h3>
             <div className="space-y-6">
                <div className="flex items-center justify-between p-6 bg-slate-800 rounded-3xl border border-slate-700">
                  <div className="flex items-center gap-5">
                    <div className="p-3 bg-cyan-500/10 rounded-xl"><Volume2 size={24} className="text-cyan-400" /></div>
-                   <span className="font-bold">Acoustic Feedback</span>
+                   <span className="font-bold">Acoustics</span>
                  </div>
                  <button onClick={() => setStats(s => ({...s, soundEnabled: !s.soundEnabled}))} className={`w-14 h-7 rounded-full transition-all relative ${stats.soundEnabled ? 'bg-cyan-600' : 'bg-slate-700'}`}>
                    <div className={`w-5 h-5 bg-white rounded-full transition-all absolute top-1 ${stats.soundEnabled ? 'left-8' : 'left-1'}`} />
@@ -251,26 +245,23 @@ const App: React.FC = () => {
                </div>
                <div className="p-8 bg-rose-950/20 border border-rose-900/40 rounded-3xl">
                  <h4 className="text-rose-500 font-black mb-4 flex items-center gap-4 text-sm uppercase tracking-widest"><Trash2 size={20} /> Identity Purge</h4>
-                 <button onClick={wipeAllData} className="w-full py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all">Reset All Progression</button>
+                 <button onClick={wipeAllData} className="w-full py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold">Wipe Data</button>
                </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header with Navigation */}
-      <header className={`py-8 flex flex-col lg:flex-row items-center justify-between gap-10 border-b-2 border-slate-900/50 mb-12 sticky top-0 bg-[#020617]/95 backdrop-blur-xl z-[100]`}>
+      <header className="py-8 flex flex-col lg:flex-row items-center justify-between gap-10 border-b-2 border-slate-900/50 mb-12 bg-[#020617] z-[100]">
         <div className="flex items-center gap-6 group cursor-pointer" onClick={() => setActiveTab('dashboard')}>
-          <div className="w-14 h-14 bg-gradient-to-tr from-cyan-600 to-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-[0_0_20px_rgba(6,182,212,0.3)] group-hover:scale-110 transition-all">HT</div>
+          <div className="w-14 h-14 bg-gradient-to-tr from-cyan-600 to-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-[0_0_20px_rgba(6,182,212,0.3)] group-hover:scale-110">HT</div>
           <div>
             <h1 className="text-3xl font-black tracking-tighter leading-none mb-2">HEROTYPIST</h1>
             <div className="flex items-center gap-4">
                <div className="h-1.5 w-32 bg-slate-900 rounded-full overflow-hidden">
                  <div className="h-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]" style={{ width: `${(stats.xp % 2500) / 25}%` }}></div>
                </div>
-               <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/30">
-                 {currentLesson && activeTab === 'practice' ? `Stage ${currentLesson.order}` : `Rank ${stats.level}`}
-               </span>
+               <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Rank {stats.level}</span>
             </div>
           </div>
         </div>
@@ -280,7 +271,7 @@ const App: React.FC = () => {
             <Layout size={20} /> <span className="hidden sm:inline">Dashboard</span>
           </button>
           <button onClick={() => setActiveTab('lessons')} className={`flex items-center gap-3 px-8 py-4 rounded-xl text-sm font-bold transition-all ${activeTab === 'lessons' ? 'bg-slate-800 text-cyan-400 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
-            <BookOpen size={20} /> <span className="hidden sm:inline">Campaign</span>
+            <BookOpen size={20} /> <span className="hidden sm:inline">Path</span>
           </button>
           <button onClick={() => setActiveTab('practice')} className={`flex items-center gap-3 px-8 py-4 rounded-xl text-sm font-bold transition-all ${activeTab === 'practice' ? 'bg-slate-800 text-cyan-400 shadow-lg' : 'text-slate-500 hover:text-white'}`}>
             <Play size={20} /> <span className="hidden sm:inline">Combat</span>
@@ -288,273 +279,100 @@ const App: React.FC = () => {
         </nav>
 
         <div className="flex items-center gap-4">
-          <AdUnit slotId="top-leaderboard" format="horizontal" className="hidden xl:flex w-[468px] h-12" />
-          <button onClick={() => setShowSettings(true)} className="p-4 bg-slate-900 border border-slate-800 rounded-xl hover:bg-slate-800 group transition-all">
-            <Settings size={24} className="text-slate-500 group-hover:rotate-90 duration-500 transition-transform" />
+          <AdUnit id="header-ad-universal" className="hidden xl:flex w-[468px] h-12" />
+          <button onClick={() => setShowSettings(true)} className="p-4 bg-slate-900 border border-slate-800 rounded-xl hover:bg-slate-800 group">
+            <Settings size={24} className="text-slate-500 group-hover:rotate-90 duration-500" />
           </button>
         </div>
       </header>
 
-      <main className={`flex-1`}>
-        <div className="flex flex-col xl:flex-row gap-12">
-          <div className="flex-1">
-            {activeTab === 'lessons' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                {INITIAL_LESSONS.map(lesson => {
-                  const isLocked = !stats.unlockedStages.includes(lesson.order);
-                  const stars = stats.lessonStars[lesson.id] || 0;
-                  return (
-                    <div 
-                      key={lesson.id} 
-                      className={`group relative bg-slate-900/50 border-2 ${isLocked ? 'border-slate-800/50' : 'border-slate-800 hover:border-cyan-500/50'} p-8 rounded-[3rem] transition-all cursor-pointer shadow-xl overflow-hidden active:scale-[0.98]`}
-                      onClick={() => handleStartLesson(lesson)}
-                    >
-                      {isLocked && (
-                        <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-[0.5px] flex items-center justify-center z-10">
-                          <Lock size={40} className="text-slate-600 group-hover:text-cyan-400 transition-all" />
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center mb-6">
-                        <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg border ${isLocked ? 'text-slate-600 border-slate-800' : 'text-cyan-500 border-cyan-800/30 bg-cyan-950/20'}`}>Stage {lesson.order}</span>
-                        <div className="flex gap-1">
-                            {[1,2,3,4,5].map(i => <Star key={i} size={12} className={i <= stars ? 'fill-amber-400 text-amber-400' : 'text-slate-800'} />)}
-                        </div>
-                      </div>
-                      <h3 className={`text-2xl font-black mb-2 tracking-tight ${isLocked ? 'text-slate-500' : 'text-white'}`}>{lesson.title}</h3>
-                      <p className={`text-xs mb-8 line-clamp-2 leading-relaxed ${isLocked ? 'text-slate-600' : 'text-slate-400'}`}>{lesson.description}</p>
-                      <div className={`w-full py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] flex items-center justify-center gap-3 transition-all ${isLocked ? 'bg-slate-800/50 text-slate-700' : 'bg-slate-800 group-hover:bg-cyan-600 text-white'}`}>
-                        {isLocked ? 'Access Denied' : 'Enter Trial'} <ChevronRight size={18} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : activeTab === 'practice' && currentLesson ? (
-              <div className="space-y-4 animate-in zoom-in-95 duration-500 relative">
-                
-                {/* Visual Feedback Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-6 bg-slate-900/80 backdrop-blur-xl p-4 rounded-[2rem] border border-slate-800 sticky top-4 z-50 shadow-2xl">
-                  <div className="flex gap-12 items-center">
-                    <div className="text-center">
-                      <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Velocity</div>
-                      <div className="text-2xl font-black text-cyan-400 font-mono tracking-tighter">{stats.wpm} <span className="text-[10px] text-slate-600 font-sans">WPM</span></div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Precision</div>
-                      <div className="text-2xl font-black text-emerald-400 font-mono tracking-tighter">{stats.realAccuracy}%</div>
-                    </div>
-                    <div className="h-10 w-px bg-slate-800 mx-2 hidden md:block"></div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Operation Stage {currentLesson.order}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    <button onClick={() => setShowKeyboard(!showKeyboard)} className={`p-2.5 rounded-xl border transition-all ${showKeyboard ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}><KeyboardIcon size={18} /></button>
-                    <button onClick={() => setShowHands(!showHands)} className={`p-2.5 rounded-xl border transition-all ${showHands ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}><Hand size={18} /></button>
-                    <button onClick={() => setGameState(gameState === GameState.PAUSED ? GameState.PLAYING : GameState.PAUSED)} className="p-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-all">
-                      {gameState === GameState.PAUSED ? <PlayCircle size={18} /> : <Pause size={18} />}
-                    </button>
-                    <button onClick={() => handleStartLesson(currentLesson)} className="p-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-all"><RefreshCw size={18} /></button>
-                  </div>
+      <main className="flex-1">
+        {activeTab === 'lessons' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
+            {INITIAL_LESSONS.map(lesson => {
+              const isLocked = !stats.unlockedStages.includes(lesson.order);
+              return (
+                <div key={lesson.id} className={`group relative bg-slate-900/50 border-2 ${isLocked ? 'border-slate-800/50' : 'border-slate-800 hover:border-cyan-500/50'} p-8 rounded-[3rem] transition-all cursor-pointer shadow-xl overflow-hidden`} onClick={() => handleStartLesson(lesson)}>
+                  {isLocked && <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-[0.5px] flex items-center justify-center z-10"><Lock size={40} className="text-slate-600" /></div>}
+                  <h3 className="text-2xl font-black mb-2 tracking-tight">Stage {lesson.order}: {lesson.title}</h3>
+                  <p className="text-xs text-slate-400 mb-8">{lesson.description}</p>
+                  <div className="w-full py-4 rounded-xl bg-slate-800 group-hover:bg-cyan-600 text-white font-black text-center text-[10px] uppercase tracking-widest flex items-center justify-center gap-2">Enter <ChevronRight size={14} /></div>
                 </div>
-
-                <div className="relative p-6 md:p-10 bg-[#020617] rounded-[3rem] border-2 border-slate-900 shadow-inner flex flex-col items-center justify-center min-h-[750px] max-h-[90vh] overflow-hidden">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.03),transparent)] pointer-events-none"></div>
-
-                  {!isInputFocused && gameState === GameState.PLAYING && (
-                    <div 
-                      className="absolute inset-0 z-[110] bg-slate-950/60 backdrop-blur-[4px] cursor-pointer flex flex-col items-center justify-center animate-in fade-in duration-300"
-                      onClick={() => { textInputRef.current?.focus(); setIsInputFocused(true); }}
-                    >
-                      <MousePointer2 size={40} className="text-cyan-400 mb-2 animate-bounce" />
-                      <p className="text-sm font-black uppercase tracking-[0.2em] text-cyan-400">Initialize Keyboard Link</p>
-                    </div>
-                  )}
-                  
-                  {gameState === GameState.PAUSED && (
-                     <div className="absolute inset-0 z-[120] bg-slate-950/90 backdrop-blur-xl rounded-[3rem] flex flex-col items-center justify-center">
-                       <BrainCircuit size={64} className="text-cyan-500 mb-8 animate-pulse" />
-                       <h2 className="text-4xl font-black mb-10 tracking-tighter text-white uppercase">Neural Link Suspended</h2>
-                       <button onClick={() => setGameState(GameState.PLAYING)} className="px-12 py-5 bg-cyan-600 hover:bg-cyan-500 rounded-2xl font-black flex items-center gap-4 text-lg transition-all shadow-xl">Reconnect Hero</button>
-                     </div>
-                  )}
-
-                  {gameState === GameState.FINISHED ? (
-                    <div className="flex flex-col items-center justify-center space-y-8 py-8 w-full animate-in zoom-in-95 duration-500 relative z-10">
-                      <div className="flex flex-col items-center gap-4">
-                         <div className="w-24 h-24 bg-gradient-to-tr from-cyan-600 to-indigo-600 rounded-3xl flex items-center justify-center text-white shadow-[0_0_50px_rgba(6,182,212,0.2)]">
-                           <Trophy size={40} className="animate-bounce" />
-                         </div>
-                         <div className="flex gap-2">
-                            {[1,2,3,4,5].map(i => <Star key={i} size={24} className={i <= (history[0]?.stars || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-800'} />)}
-                         </div>
-                      </div>
-                      
-                      <div className="text-center">
-                        <h2 className="text-4xl font-black mb-2 tracking-tighter text-white uppercase">Combat Briefing Result</h2>
-                        <p className="text-slate-500 italic text-base max-w-xl mx-auto leading-relaxed">"{quote}"</p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-6 w-full max-w-lg">
-                        <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800 text-center">
-                          <div className="text-4xl font-black text-cyan-400 font-mono tracking-tighter">{stats.wpm}</div>
-                          <div className="text-[9px] font-black uppercase text-slate-500 tracking-widest mt-2">Words Per Minute</div>
-                        </div>
-                        <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800 text-center">
-                          <div className="text-4xl font-black text-emerald-400 font-mono tracking-tighter">{stats.realAccuracy}%</div>
-                          <div className="text-[9px] font-black uppercase text-slate-500 tracking-widest mt-2">Precision Rating</div>
-                        </div>
-                      </div>
-
-                      <AdUnit slotId="post-game-rectangle" format="rectangle" className="w-full max-w-[300px] h-[250px]" />
-
-                      <div className="flex flex-wrap gap-4 justify-center pt-4">
-                        <button onClick={() => handleStartLesson(currentLesson)} className="px-8 py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl font-black flex items-center gap-3 transition-all"><RefreshCw size={18} /> Re-Trial</button>
-                        <button 
-                          onClick={() => {
-                            const next = INITIAL_LESSONS.find(l => l.order === currentLesson!.order + 1);
-                            if (next) handleStartLesson(next);
-                            else setActiveTab('lessons');
-                          }}
-                          className="px-12 py-4 rounded-xl font-black bg-cyan-600 hover:bg-cyan-500 flex items-center gap-3 text-lg transition-all shadow-lg shadow-cyan-900/20"
-                        >
-                          Next Mission <ChevronRight size={20} />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="w-full flex flex-col items-center justify-center py-4">
-                      {/* TEXT AREA: Strictly limited to 3 lines */}
-                      <div className="w-full max-w-5xl mx-auto flex flex-wrap justify-center content-center gap-x-1.5 gap-y-4 text-3xl md:text-4xl lg:text-5xl font-mono leading-snug mb-10 select-none relative z-10 font-bold overflow-hidden h-[160px] md:h-[220px]">
-                        {currentLesson.content.split('').map((char, index) => {
-                          let colorClass = 'text-slate-800';
-                          if (index < typedText.length) {
-                            colorClass = typedText[index] === char ? 'text-slate-200' : 'text-rose-500 bg-rose-500/10 px-0.5 rounded-sm';
-                          } else if (index === typedText.length) {
-                            colorClass = 'text-cyan-400 bg-cyan-400/10 ring-2 ring-cyan-400/40 rounded-sm px-1 animate-pulse';
-                          }
-                          return (
-                            <span key={index} className={`${colorClass} transition-colors duration-75`}>
-                              {char === ' ' ? '␣' : char}
-                            </span>
-                          );
-                        })}
-                      </div>
-
-                      {/* GUIDES AREA */}
-                      <div className="w-full flex flex-col items-center justify-center gap-8 transition-all duration-500">
-                        {showHands && (
-                          <div className="w-full max-w-xl opacity-90 animate-in slide-in-from-bottom-2 duration-300">
-                            <HandGuide activeFinger={activeFinger} />
-                          </div>
-                        )}
-                        {showKeyboard && (
-                          <div className="w-full max-w-3xl opacity-90 animate-in slide-in-from-bottom-4 duration-500">
-                            <Keyboard activeKey={nextChar || ''} />
-                          </div>
-                        )}
-                      </div>
-
-                      <input 
-                        ref={textInputRef} 
-                        type="text" 
-                        className="opacity-0 absolute inset-0 w-full h-full cursor-default z-0" 
-                        onKeyDown={handleKeyDown} 
-                        onFocus={() => setIsInputFocused(true)}
-                        onBlur={(e) => {
-                          const target = e.relatedTarget as HTMLElement;
-                          if (target && (target.tagName === 'BUTTON' || target.closest('header'))) return;
-                          setIsInputFocused(false);
-                        }}
-                        autoFocus 
-                        autoComplete="off" 
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-12 animate-in fade-in duration-700">
-                <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-16 rounded-[4rem] border-2 border-slate-800 shadow-2xl relative overflow-hidden group">
-                  <div className="absolute -top-24 -right-24 p-16 opacity-[0.02] group-hover:rotate-[20deg] transition-transform duration-1000"><Trophy size={400} /></div>
-                  <div className="relative z-10">
-                    <h2 className="text-6xl font-black mb-8 tracking-tighter leading-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">Enter the Grid</h2>
-                    <p className="text-slate-400 mb-14 max-w-2xl text-2xl leading-relaxed font-medium">Stage {Math.max(...stats.unlockedStages)} is your current operational objective.</p>
-                    <div className="flex flex-wrap gap-8">
-                      <button onClick={() => setActiveTab('lessons')} className="px-14 py-7 bg-cyan-600 hover:bg-cyan-500 rounded-3xl font-black shadow-[0_0_40px_rgba(6,182,212,0.3)] text-2xl group flex items-center gap-4 transition-all">
-                        Launch Campaign <ChevronRight size={32} className="group-hover:translate-x-2 transition-transform" />
-                      </button>
-                      <button onClick={() => setActiveTab('practice')} className="px-14 py-7 bg-slate-800 hover:bg-slate-700 rounded-3xl font-black text-2xl border border-slate-700 transition-all">Fast Trial</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  <div className="bg-slate-900/50 p-10 rounded-[2.5rem] border border-slate-800/50 text-center shadow-lg">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Historical WPM</div>
-                    <div className="text-6xl font-black text-cyan-400 font-mono tracking-tighter">{history.length > 0 ? Math.round(history.reduce((a,b)=>a+b.wpm,0)/history.length) : 0}</div>
-                  </div>
-                  <div className="bg-slate-900/50 p-10 rounded-[2.5rem] border border-slate-800/50 text-center shadow-lg">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Stages Mastered</div>
-                    <div className="text-6xl font-black text-emerald-500 font-mono tracking-tighter">{stats.unlockedStages.length}</div>
-                  </div>
-                  <div className="bg-slate-900/50 p-10 rounded-[2.5rem] border border-slate-800/50 text-center shadow-lg">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Hero Rank</div>
-                    <div className="text-6xl font-black text-indigo-400 font-mono tracking-tighter">{stats.level}</div>
-                  </div>
-                </div>
-              </div>
-            )}
+              );
+            })}
           </div>
-          
-          <aside className="xl:w-[400px] space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
-            <AdUnit slotId="sidebar-main-skyscraper" format="vertical" className="h-[600px] rounded-[3rem] border border-slate-800 shadow-2xl" />
-            
-            <div className="bg-slate-900/50 p-10 rounded-[3rem] border border-slate-800/50 shadow-lg">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6 flex items-center gap-3"><BrainCircuit size={16} /> Operational Doctrine</h4>
-               <p className="text-lg text-slate-400 italic leading-relaxed font-serif">"The shadow moves because the light commands it. Your fingers move because the mind has already arrived at the key."</p>
+        ) : activeTab === 'practice' && currentLesson ? (
+          <div ref={practiceViewRef} className="h-[calc(100vh-80px)] flex flex-col items-center justify-center gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-6 bg-slate-900/80 backdrop-blur-xl p-4 rounded-[2rem] border border-slate-800 w-full max-w-5xl shadow-2xl">
+              <div className="flex gap-10 items-center pl-6">
+                <div className="text-center"><div className="text-2xl font-black text-cyan-400 font-mono">{stats.wpm}</div><div className="text-[8px] uppercase text-slate-500">WPM</div></div>
+                <div className="text-center"><div className="text-2xl font-black text-emerald-400 font-mono">{stats.realAccuracy}%</div><div className="text-[8px] uppercase text-slate-500">Accuracy</div></div>
+              </div>
+              <div className="flex gap-4 pr-6">
+                <button onClick={() => setShowKeyboard(!showKeyboard)} className={`p-2.5 rounded-xl border ${showKeyboard ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'bg-slate-800 text-slate-500'}`}><KeyboardIcon size={18} /></button>
+                <button onClick={() => setShowHands(!showHands)} className={`p-2.5 rounded-xl border ${showHands ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}><Hand size={18} /></button>
+                <button onClick={() => setGameState(gameState === GameState.PAUSED ? GameState.PLAYING : GameState.PAUSED)} className="p-2.5 bg-slate-800 rounded-xl"><Pause size={18} /></button>
+              </div>
             </div>
 
-            {history.length > 0 && (
-              <div className="bg-slate-900/80 p-10 rounded-[3rem] border-2 border-slate-800 relative overflow-hidden group shadow-2xl">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Tactical Logs</h4>
-                <div className="space-y-6">
-                  {history.slice(0, 5).map((h, i) => (
-                    <div key={i} className="flex justify-between items-center border-b border-slate-800 pb-4 last:border-0 last:pb-0">
-                      <div>
-                        <div className="text-sm font-bold">{h.wpm} WPM</div>
-                        <div className="text-[9px] text-slate-600 uppercase tracking-widest">{h.date.split(',')[0]}</div>
-                      </div>
-                      <div className="flex gap-1">
-                        {[1,2,3,4,5].map(j => <Star key={j} size={8} className={j <= h.stars ? 'fill-amber-400 text-amber-400' : 'text-slate-800'} />)}
-                      </div>
-                    </div>
-                  ))}
+            <div className="relative w-full max-w-6xl p-10 bg-[#020617] rounded-[4rem] border-2 border-slate-900 flex flex-col items-center justify-center min-h-[600px] shadow-2xl">
+              {!isInputFocused && gameState === GameState.PLAYING && (
+                <div className="absolute inset-0 z-[110] bg-slate-950/60 backdrop-blur-[4px] rounded-[4rem] cursor-pointer flex flex-col items-center justify-center" onClick={() => { textInputRef.current?.focus(); setIsInputFocused(true); }}>
+                  <MousePointer2 size={40} className="text-cyan-400 mb-2 animate-bounce" />
+                  <p className="text-xs font-black uppercase text-cyan-400 tracking-widest">Synchronize Keyboard</p>
                 </div>
-              </div>
-            )}
-            
-            <AdUnit slotId="sidebar-bottom-square" format="rectangle" className="h-60 rounded-3xl border border-slate-800 shadow-xl" />
-          </aside>
-        </div>
+              )}
+
+              {gameState === GameState.FINISHED ? (
+                <div className="flex flex-col items-center justify-center space-y-8 py-8 animate-in zoom-in-95">
+                  <div className="w-20 h-20 bg-cyan-600 rounded-3xl flex items-center justify-center text-white"><Trophy size={40} /></div>
+                  <div className="text-center"><h2 className="text-4xl font-black uppercase">Mission Complete</h2><p className="text-slate-500 italic">"{quote}"</p></div>
+                  <div className="grid grid-cols-2 gap-6 w-full max-w-sm">
+                    <div className="bg-slate-900 p-6 rounded-3xl text-center"><div className="text-3xl font-black text-cyan-400">{stats.wpm}</div><div className="text-[8px] uppercase text-slate-500">Velocity</div></div>
+                    <div className="bg-slate-900 p-6 rounded-3xl text-center"><div className="text-3xl font-black text-emerald-400">{stats.realAccuracy}%</div><div className="text-[8px] uppercase text-slate-500">Precision</div></div>
+                  </div>
+                  <div className="flex gap-4">
+                    <button onClick={() => handleStartLesson(currentLesson)} className="px-8 py-4 bg-slate-800 rounded-xl font-black">Retry</button>
+                    <button onClick={() => setActiveTab('lessons')} className="px-8 py-4 bg-cyan-600 rounded-xl font-black">Next Task</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full flex flex-col items-center justify-center">
+                  <div className="w-full max-w-5xl flex flex-wrap justify-center gap-x-1.5 gap-y-4 text-4xl font-mono leading-relaxed mb-10 h-[220px] overflow-hidden content-center transition-all duration-500">
+                    {currentLesson.content.split('').slice(visibleTextIndices.start, visibleTextIndices.end).map((char, index) => {
+                      const absoluteIndex = visibleTextIndices.start + index;
+                      let cls = absoluteIndex < typedText.length 
+                        ? (typedText[absoluteIndex] === char ? 'text-slate-400' : 'text-rose-500 bg-rose-500/10 px-0.5') 
+                        : (absoluteIndex === typedText.length ? 'text-cyan-400 bg-cyan-400/10 ring-2 ring-cyan-400/40 rounded px-1 animate-pulse' : 'text-slate-800');
+                      
+                      return <span key={absoluteIndex} className={`${cls} transition-colors duration-200`}>{char === ' ' ? '␣' : char}</span>;
+                    })}
+                  </div>
+                  <div className="w-full flex flex-col items-center gap-8">
+                    {showHands && <HandGuide activeFinger={activeFinger} />}
+                    {showKeyboard && <Keyboard activeKey={nextChar || ''} />}
+                  </div>
+                  <input ref={textInputRef} type="text" className="opacity-0 absolute inset-0 w-full h-full cursor-default" onKeyDown={handleKeyDown} onFocus={() => setIsInputFocused(true)} onBlur={(e) => { if (e.relatedTarget?.tagName !== 'BUTTON') setIsInputFocused(false); }} autoFocus autoComplete="off" />
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-12">
+            <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-16 rounded-[4rem] border-2 border-slate-800 shadow-2xl flex flex-col items-start">
+              <h2 className="text-6xl font-black mb-8 tracking-tighter">Enter the Grid</h2>
+              <p className="text-slate-400 text-xl mb-12">Your fingers are your weapons. Precision is your shield.</p>
+              <button onClick={() => setActiveTab('lessons')} className="px-14 py-6 bg-cyan-600 rounded-2xl font-black text-xl shadow-xl shadow-cyan-900/20 flex items-center gap-3">Launch Trials <ChevronRight /></button>
+            </div>
+          </div>
+        )}
       </main>
 
-      <div className="fixed bottom-0 left-0 w-full bg-[#020617]/95 backdrop-blur-md border-t border-slate-900 py-3 z-[110] px-10 flex items-center justify-between shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+      <footer className="mt-20 py-12 border-t border-slate-900 flex items-center justify-between opacity-50 hover:opacity-100 transition-opacity">
         <div className="flex-1 max-w-5xl">
-          <AdUnit slotId="footer-anchored-banner" format="horizontal" className="h-20 border-0 bg-slate-900/20" />
+          <AdUnit id="footer-universal-banner" className="h-16 border-0 bg-slate-900/20" />
         </div>
-        <div className="hidden lg:flex items-center gap-6 text-[9px] font-black uppercase tracking-widest text-slate-700 ml-6">
-          <span>&copy; 2025 HERO COLLECTIVE</span>
-        </div>
-      </div>
-
-      <footer className="py-20 border-t border-slate-900/50 flex flex-col md:flex-row items-center justify-between gap-12 text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] pb-40">
-        <div className="flex items-center gap-10 flex-wrap justify-center">
-          <span className="text-slate-500 tracking-tighter text-xl font-black">HEROTYPIST</span>
-          <a href="#" className="hover:text-cyan-400 transition-colors">Academy</a>
-          <a href="#" className="hover:text-cyan-400 transition-colors">Protocol</a>
-          <a href="#" className="hover:text-cyan-400 transition-colors">Grid</a>
-        </div>
+        <div className="text-[9px] font-black uppercase text-slate-700 ml-6">© 2025 HERO COLLECTIVE</div>
       </footer>
     </div>
   );
