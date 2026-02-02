@@ -4,10 +4,17 @@ import {
 } from 'lucide-react';
 import { UserStats, Lesson, HistoryRecord, GameState, Finger } from './types';
 import { INITIAL_LESSONS, FINGER_MAP, MOTIVATION_QUOTES } from './constants';
-import { soundManager } from './audioService';
-import Keyboard from './Keyboard';
-import HandGuide from './HandGuide';
-import AdUnit from './AdPlaceholder';
+import { soundManager } from './services/audioService';
+import Keyboard from './components/Keyboard';
+import HandGuide from './components/HandGuide';
+import AdUnit from './components/AdPlaceholder';
+
+interface NoticeState {
+  message: string;
+  allowOverride: boolean;
+  targetLesson?: Lesson;
+  isRecommendation?: boolean;
+}
 
 const calculateStars = (wpm: number, accuracy: number, stage: number, level: number): number => {
   const targetWpm = 10 + (stage * 0.5) + (level * 1.5);
@@ -29,8 +36,8 @@ const App: React.FC = () => {
   const [showHands, setShowHands] = useState(true);
   const [isInputFocused, setIsInputFocused] = useState(true);
 
-  // Focus Mode Ref: To scroll the lesson into view
-  const practiceViewRef = useRef<HTMLDivElement>(null);
+  // --- NEW: Ref for Focus Mode ---
+  const focusAreaRef = useRef<HTMLDivElement>(null);
 
   const STORAGE_KEY_STATS = 'herotypist-stats-v12';
   const STORAGE_KEY_HISTORY = 'herotypist-history-v12';
@@ -56,27 +63,25 @@ const App: React.FC = () => {
   });
   
   const [gameState, setGameState] = useState<GameState>(GameState.IDLE);
-  const [notice, setNotice] = useState<{message: string; allowOverride: boolean; targetLesson?: Lesson} | null>(null);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
   const [quote, setQuote] = useState('');
   
   const textInputRef = useRef<HTMLInputElement>(null);
 
-  // --- FOCUS MODE LOGIC ---
+  // --- NEW: Logic to Center the Lesson View ---
   useEffect(() => {
-    if (activeTab === 'practice' && practiceViewRef.current) {
-      practiceViewRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (activeTab === 'practice' && focusAreaRef.current) {
+      focusAreaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [activeTab, currentLesson]);
 
-  // --- GRADUAL REVEAL LOGIC ---
-  const visibleTextIndices = useMemo(() => {
+  // --- NEW: Gradual Text Reveal Window ---
+  const visibleTextWindow = useMemo(() => {
     if (!currentLesson) return { start: 0, end: 0 };
-    const charsPerLine = 45; // Adjusted for the 4xl font size
+    const charsPerLine = 52; // Estimated for your 4xl font size
     const currentLine = Math.floor(typedText.length / charsPerLine);
-    
-    // Show current line and 2 lines ahead
     const start = Math.max(0, currentLine * charsPerLine);
-    const end = start + (charsPerLine * 3); 
+    const end = start + (charsPerLine * 3); // Show 3 lines at a time
     return { start, end };
   }, [typedText.length, currentLesson]);
 
@@ -109,7 +114,7 @@ const App: React.FC = () => {
     const focusInput = () => {
       if (activeTab === 'practice' && gameState !== GameState.FINISHED && textInputRef.current) {
         const active = document.activeElement;
-        const isInteractive = active?.tagName === 'BUTTON' || (active?.tagName === 'INPUT' && active !== textInputRef.current);
+        const isInteractive = active?.tagName === 'BUTTON' || active?.tagName === 'INPUT' && active !== textInputRef.current;
         if (!isInteractive && active !== textInputRef.current) {
           textInputRef.current.focus();
           setIsInputFocused(true);
@@ -252,7 +257,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <header className="py-8 flex flex-col lg:flex-row items-center justify-between gap-10 border-b-2 border-slate-900/50 mb-12 bg-[#020617] z-[100]">
+      <header className={`py-8 flex flex-col lg:flex-row items-center justify-between gap-10 border-b-2 border-slate-900/50 mb-12 bg-[#020617]/95 backdrop-blur-xl z-[100]`}>
         <div className="flex items-center gap-6 group cursor-pointer" onClick={() => setActiveTab('dashboard')}>
           <div className="w-14 h-14 bg-gradient-to-tr from-cyan-600 to-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-[0_0_20px_rgba(6,182,212,0.3)] group-hover:scale-110">HT</div>
           <div>
@@ -286,94 +291,110 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1">
-        {activeTab === 'lessons' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
-            {INITIAL_LESSONS.map(lesson => {
-              const isLocked = !stats.unlockedStages.includes(lesson.order);
-              return (
-                <div key={lesson.id} className={`group relative bg-slate-900/50 border-2 ${isLocked ? 'border-slate-800/50' : 'border-slate-800 hover:border-cyan-500/50'} p-8 rounded-[3rem] transition-all cursor-pointer shadow-xl overflow-hidden`} onClick={() => handleStartLesson(lesson)}>
-                  {isLocked && <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-[0.5px] flex items-center justify-center z-10"><Lock size={40} className="text-slate-600" /></div>}
-                  <h3 className="text-2xl font-black mb-2 tracking-tight">Stage {lesson.order}: {lesson.title}</h3>
-                  <p className="text-xs text-slate-400 mb-8">{lesson.description}</p>
-                  <div className="w-full py-4 rounded-xl bg-slate-800 group-hover:bg-cyan-600 text-white font-black text-center text-[10px] uppercase tracking-widest flex items-center justify-center gap-2">Enter <ChevronRight size={14} /></div>
-                </div>
-              );
-            })}
-          </div>
-        ) : activeTab === 'practice' && currentLesson ? (
-          <div ref={practiceViewRef} className="h-[calc(100vh-80px)] flex flex-col items-center justify-center gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-6 bg-slate-900/80 backdrop-blur-xl p-4 rounded-[2rem] border border-slate-800 w-full max-w-5xl shadow-2xl">
-              <div className="flex gap-10 items-center pl-6">
-                <div className="text-center"><div className="text-2xl font-black text-cyan-400 font-mono">{stats.wpm}</div><div className="text-[8px] uppercase text-slate-500">WPM</div></div>
-                <div className="text-center"><div className="text-2xl font-black text-emerald-400 font-mono">{stats.realAccuracy}%</div><div className="text-[8px] uppercase text-slate-500">Accuracy</div></div>
+      <main className={`flex-1`}>
+        <div className="flex flex-col xl:flex-row gap-12">
+          <div className="flex-1">
+            {activeTab === 'lessons' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
+                {INITIAL_LESSONS.map(lesson => {
+                  const isLocked = !stats.unlockedStages.includes(lesson.order);
+                  return (
+                    <div key={lesson.id} className={`group relative bg-slate-900/50 border-2 ${isLocked ? 'border-slate-800/50' : 'border-slate-800 hover:border-cyan-500/50'} p-8 rounded-[3rem] transition-all cursor-pointer shadow-xl overflow-hidden`} onClick={() => handleStartLesson(lesson)}>
+                      {isLocked && <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-[0.5px] flex items-center justify-center z-10"><Lock size={40} className="text-slate-600" /></div>}
+                      <h3 className="text-2xl font-black mb-2 tracking-tight">Stage {lesson.order}: {lesson.title}</h3>
+                      <p className="text-xs text-slate-400 mb-8">{lesson.description}</p>
+                      <div className="w-full py-4 rounded-xl bg-slate-800 group-hover:bg-cyan-600 text-white font-black text-center text-[10px] uppercase tracking-widest flex items-center justify-center gap-2">Enter <ChevronRight size={14} /></div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="flex gap-4 pr-6">
-                <button onClick={() => setShowKeyboard(!showKeyboard)} className={`p-2.5 rounded-xl border ${showKeyboard ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'bg-slate-800 text-slate-500'}`}><KeyboardIcon size={18} /></button>
-                <button onClick={() => setShowHands(!showHands)} className={`p-2.5 rounded-xl border ${showHands ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}><Hand size={18} /></button>
-                <button onClick={() => setGameState(gameState === GameState.PAUSED ? GameState.PLAYING : GameState.PAUSED)} className="p-2.5 bg-slate-800 rounded-xl"><Pause size={18} /></button>
-              </div>
-            </div>
-
-            <div className="relative w-full max-w-6xl p-10 bg-[#020617] rounded-[4rem] border-2 border-slate-900 flex flex-col items-center justify-center min-h-[600px] shadow-2xl">
-              {!isInputFocused && gameState === GameState.PLAYING && (
-                <div className="absolute inset-0 z-[110] bg-slate-950/60 backdrop-blur-[4px] rounded-[4rem] cursor-pointer flex flex-col items-center justify-center" onClick={() => { textInputRef.current?.focus(); setIsInputFocused(true); }}>
-                  <MousePointer2 size={40} className="text-cyan-400 mb-2 animate-bounce" />
-                  <p className="text-xs font-black uppercase text-cyan-400 tracking-widest">Synchronize Keyboard</p>
-                </div>
-              )}
-
-              {gameState === GameState.FINISHED ? (
-                <div className="flex flex-col items-center justify-center space-y-8 py-8 animate-in zoom-in-95">
-                  <div className="w-20 h-20 bg-cyan-600 rounded-3xl flex items-center justify-center text-white"><Trophy size={40} /></div>
-                  <div className="text-center"><h2 className="text-4xl font-black uppercase">Mission Complete</h2><p className="text-slate-500 italic">"{quote}"</p></div>
-                  <div className="grid grid-cols-2 gap-6 w-full max-w-sm">
-                    <div className="bg-slate-900 p-6 rounded-3xl text-center"><div className="text-3xl font-black text-cyan-400">{stats.wpm}</div><div className="text-[8px] uppercase text-slate-500">Velocity</div></div>
-                    <div className="bg-slate-900 p-6 rounded-3xl text-center"><div className="text-3xl font-black text-emerald-400">{stats.realAccuracy}%</div><div className="text-[8px] uppercase text-slate-500">Precision</div></div>
+            ) : activeTab === 'practice' && currentLesson ? (
+              /* FOCUS MODE CONTAINER: Centers content in viewport when lesson starts */
+              <div ref={focusAreaRef} className="min-h-[90vh] flex flex-col items-center justify-center space-y-8 relative py-12">
+                <div className="flex flex-wrap items-center justify-between gap-6 bg-slate-900/80 backdrop-blur-xl p-4 rounded-[2rem] border border-slate-800 w-full max-w-5xl shadow-2xl">
+                  <div className="flex gap-10 items-center">
+                    <div className="text-center"><div className="text-2xl font-black text-cyan-400 font-mono">{stats.wpm}</div><div className="text-[8px] uppercase text-slate-500">WPM</div></div>
+                    <div className="text-center"><div className="text-2xl font-black text-emerald-400 font-mono">{stats.realAccuracy}%</div><div className="text-[8px] uppercase text-slate-500">Accuracy</div></div>
                   </div>
                   <div className="flex gap-4">
-                    <button onClick={() => handleStartLesson(currentLesson)} className="px-8 py-4 bg-slate-800 rounded-xl font-black">Retry</button>
-                    <button onClick={() => setActiveTab('lessons')} className="px-8 py-4 bg-cyan-600 rounded-xl font-black">Next Task</button>
+                    <button onClick={() => setShowKeyboard(!showKeyboard)} className={`p-2.5 rounded-xl border ${showKeyboard ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'bg-slate-800 text-slate-500'}`}><KeyboardIcon size={18} /></button>
+                    <button onClick={() => setShowHands(!showHands)} className={`p-2.5 rounded-xl border ${showHands ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}><Hand size={18} /></button>
+                    <button onClick={() => setGameState(gameState === GameState.PAUSED ? GameState.PLAYING : GameState.PAUSED)} className="p-2.5 bg-slate-800 rounded-xl"><Pause size={18} /></button>
                   </div>
                 </div>
-              ) : (
-                <div className="w-full flex flex-col items-center justify-center">
-                  <div className="w-full max-w-5xl flex flex-wrap justify-center gap-x-1.5 gap-y-4 text-4xl font-mono leading-relaxed mb-10 h-[220px] overflow-hidden content-center transition-all duration-500">
-                    {currentLesson.content.split('').slice(visibleTextIndices.start, visibleTextIndices.end).map((char, index) => {
-                      const absoluteIndex = visibleTextIndices.start + index;
-                      let cls = absoluteIndex < typedText.length 
-                        ? (typedText[absoluteIndex] === char ? 'text-slate-400' : 'text-rose-500 bg-rose-500/10 px-0.5') 
-                        : (absoluteIndex === typedText.length ? 'text-cyan-400 bg-cyan-400/10 ring-2 ring-cyan-400/40 rounded px-1 animate-pulse' : 'text-slate-800');
-                      
-                      return <span key={absoluteIndex} className={`${cls} transition-colors duration-200`}>{char === ' ' ? '␣' : char}</span>;
-                    })}
-                  </div>
-                  <div className="w-full flex flex-col items-center gap-8">
-                    {showHands && <HandGuide activeFinger={activeFinger} />}
-                    {showKeyboard && <Keyboard activeKey={nextChar || ''} />}
-                  </div>
-                  <input ref={textInputRef} type="text" className="opacity-0 absolute inset-0 w-full h-full cursor-default" onKeyDown={handleKeyDown} onFocus={() => setIsInputFocused(true)} onBlur={(e) => { if (e.relatedTarget?.tagName !== 'BUTTON') setIsInputFocused(false); }} autoFocus autoComplete="off" />
+
+                <div className="relative p-12 bg-slate-950/50 rounded-[4rem] border-2 border-slate-900 flex flex-col items-center justify-center min-h-[650px] w-full max-w-6xl shadow-2xl backdrop-blur-sm">
+                  {!isInputFocused && gameState === GameState.PLAYING && (
+                    <div className="absolute inset-0 z-[110] bg-slate-950/60 backdrop-blur-[4px] cursor-pointer rounded-[4rem] flex flex-col items-center justify-center" onClick={() => { textInputRef.current?.focus(); setIsInputFocused(true); }}>
+                      <MousePointer2 size={40} className="text-cyan-400 mb-2 animate-bounce" />
+                      <p className="text-xs font-black uppercase text-cyan-400 tracking-widest">Synchronize Keyboard</p>
+                    </div>
+                  )}
+
+                  {gameState === GameState.FINISHED ? (
+                    <div className="flex flex-col items-center justify-center space-y-8 py-8 animate-in zoom-in-95">
+                      <div className="w-20 h-20 bg-cyan-600 rounded-3xl flex items-center justify-center text-white"><Trophy size={40} /></div>
+                      <div className="text-center"><h2 className="text-4xl font-black uppercase">Mission Complete</h2><p className="text-slate-500 italic">"{quote}"</p></div>
+                      <div className="grid grid-cols-2 gap-6 w-full max-w-sm">
+                        <div className="bg-slate-900 p-6 rounded-3xl text-center"><div className="text-3xl font-black text-cyan-400">{stats.wpm}</div><div className="text-[8px] uppercase text-slate-500">Velocity</div></div>
+                        <div className="bg-slate-900 p-6 rounded-3xl text-center"><div className="text-3xl font-black text-emerald-400">{stats.realAccuracy}%</div><div className="text-[8px] uppercase text-slate-500">Precision</div></div>
+                      </div>
+                      <AdUnit id="post-game-universal-rectangle" className="w-[300px] h-[250px]" />
+                      <div className="flex gap-4">
+                        <button onClick={() => handleStartLesson(currentLesson)} className="px-8 py-4 bg-slate-800 rounded-xl font-black">Retry</button>
+                        <button onClick={() => setActiveTab('lessons')} className="px-8 py-4 bg-cyan-600 rounded-xl font-black">Next Task</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-full flex flex-col items-center justify-center">
+                      {/* GRADUAL TEXT REVEAL: Sliced by current line index */}
+                      <div className="w-full max-w-5xl flex flex-wrap justify-center gap-x-1.5 gap-y-4 text-4xl font-mono leading-snug mb-14 h-[220px] overflow-hidden content-center transition-all duration-500">
+                        {currentLesson.content.split('').slice(visibleTextWindow.start, visibleTextWindow.end).map((char, index) => {
+                          const absIndex = visibleTextWindow.start + index;
+                          let cls = absIndex < typedText.length 
+                            ? (typedText[absIndex] === char ? 'text-slate-500' : 'text-rose-500 bg-rose-500/10 px-0.5') 
+                            : (absIndex === typedText.length ? 'text-cyan-400 bg-cyan-400/10 ring-2 ring-cyan-400/40 rounded px-1 animate-pulse' : 'text-slate-800');
+                          
+                          return <span key={absIndex} className={`${cls} transition-colors duration-200`}>{char === ' ' ? '␣' : char}</span>;
+                        })}
+                      </div>
+                      <div className="w-full flex flex-col items-center gap-12 scale-110">
+                        {showHands && <HandGuide activeFinger={activeFinger} />}
+                        {showKeyboard && <Keyboard activeKey={nextChar || ''} />}
+                      </div>
+                      <input ref={textInputRef} type="text" className="opacity-0 absolute inset-0 w-full h-full cursor-default" onKeyDown={handleKeyDown} onFocus={() => setIsInputFocused(true)} onBlur={(e) => { if (e.relatedTarget?.tagName !== 'BUTTON') setIsInputFocused(false); }} autoFocus autoComplete="off" />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="space-y-12">
+                <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-16 rounded-[4rem] border-2 border-slate-800 shadow-2xl flex flex-col items-start">
+                  <h2 className="text-6xl font-black mb-8 tracking-tighter">Enter the Grid</h2>
+                  <p className="text-slate-400 text-xl mb-12">Your fingers are your weapons. Precision is your shield.</p>
+                  <button onClick={() => setActiveTab('lessons')} className="px-14 py-6 bg-cyan-600 rounded-2xl font-black text-xl shadow-xl shadow-cyan-900/20 flex items-center gap-3">Launch Trials <ChevronRight /></button>
+                </div>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="space-y-12">
-            <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-16 rounded-[4rem] border-2 border-slate-800 shadow-2xl flex flex-col items-start">
-              <h2 className="text-6xl font-black mb-8 tracking-tighter">Enter the Grid</h2>
-              <p className="text-slate-400 text-xl mb-12">Your fingers are your weapons. Precision is your shield.</p>
-              <button onClick={() => setActiveTab('lessons')} className="px-14 py-6 bg-cyan-600 rounded-2xl font-black text-xl shadow-xl shadow-cyan-900/20 flex items-center gap-3">Launch Trials <ChevronRight /></button>
+          
+          <aside className="xl:w-[400px] space-y-8">
+            <AdUnit id="sidebar-universal-skyscraper" className="h-[600px] shadow-2xl" />
+            <div className="bg-slate-900/50 p-10 rounded-[3rem] border border-slate-800/50 shadow-lg">
+               <h4 className="text-[10px] font-black uppercase text-slate-500 mb-6 flex items-center gap-3"><BrainCircuit size={16} /> Protocol</h4>
+               <p className="text-lg text-slate-400 italic leading-relaxed">"Focus on the rhythm. Speed is a byproduct of perfect accuracy."</p>
             </div>
-          </div>
-        )}
+            <AdUnit id="sidebar-universal-square" className="h-60" />
+          </aside>
+        </div>
       </main>
 
-      <footer className="mt-20 py-12 border-t border-slate-900 flex items-center justify-between opacity-50 hover:opacity-100 transition-opacity">
+      <div className="mt-20 py-12 border-t border-slate-900 px-10 flex items-center justify-between opacity-50 hover:opacity-100 transition-opacity duration-700">
         <div className="flex-1 max-w-5xl">
           <AdUnit id="footer-universal-banner" className="h-16 border-0 bg-slate-900/20" />
         </div>
         <div className="text-[9px] font-black uppercase text-slate-700 ml-6">© 2025 HERO COLLECTIVE</div>
-      </footer>
+      </div>
     </div>
   );
 };
